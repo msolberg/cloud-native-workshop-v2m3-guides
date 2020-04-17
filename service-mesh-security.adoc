@@ -1,0 +1,204 @@
+= Service Mesh Security
+:experimental:
+
+In this lab, we'll learn about the security features of Red Hat Service Mesh. This lab demonstrates the following features:
+
+* Mesh-wide Mutual TLS
+* Securing the Mesh Gateway
+
+[IMPORTANT]
+====
+This section requires that an administrator modify the default SMCP instance for your user to enable mtls.
+====
+
+=== 1. Install istioctl
+
+We'll use the istioctl tool to examine the authentication status of the mesh. Before we get started, download this tool to the pod in your CodeReady Workspace:
+
+[source,sh,role="copypaste"]
+----
+curl -sL https://istio.io/downloadIstioctl | sh -
+export PATH=$PATH:$HOME/.istioctl/bin
+----
+
+You can run the command with the proxy-status argument to ensure that it's installed correctly:
+
+[source,sh,role="copypaste"]
+----
+istioctl -i {{ USER_ID }}-istio-system proxy-status
+----
+
+[source,console,role="copypaste"]
+----
+NAME                                                         CDS        LDS        EDS        RDS          PILOT                            VERSION
+details-v1-789c5f58f4-x7dwt.user13-bookinfo                  SYNCED     SYNCED     SYNCED     SYNCED       istio-pilot-5cbddfb959-r65n9     maistra-1.1.0
+istio-egressgateway-848d49ff55-jlmtv.user13-istio-system     SYNCED     SYNCED     SYNCED     NOT SENT     istio-pilot-5cbddfb959-r65n9     maistra-1.1.0
+istio-ingressgateway-5c9dd65ff-xtcjv.user13-istio-system     SYNCED     SYNCED     SYNCED     SYNCED       istio-pilot-5cbddfb959-r65n9     maistra-1.1.0
+productpage-v1-856c8cc5d8-4mkpd.user13-bookinfo              SYNCED     SYNCED     SYNCED     SYNCED       istio-pilot-5cbddfb959-r65n9     maistra-1.1.0
+ratings-v1-5786768978-66rww.user13-bookinfo                  SYNCED     SYNCED     SYNCED     SYNCED       istio-pilot-5cbddfb959-r65n9     maistra-1.1.0
+reviews-v1-5874566865-7qmrh.user13-bookinfo                  SYNCED     SYNCED     SYNCED     SYNCED       istio-pilot-5cbddfb959-r65n9     maistra-1.1.0
+reviews-v2-86865fc7d9-wnw2c.user13-bookinfo                  SYNCED     SYNCED     SYNCED     SYNCED       istio-pilot-5cbddfb959-r65n9     maistra-1.1.0
+reviews-v3-8d4cbbbbf-kqdtx.user13-bookinfo                   SYNCED     SYNCED     SYNCED     SYNCED       istio-pilot-5cbddfb959-r65n9     maistra-1.1.0
+----
+
+=== 2. Enable Mutual TLS for the bookinfo application.
+
+We'll start by enabling Mutual TLS for each service in the bookinfo application. First, verify that the services are not authenticated.
+
+Start by finding the name of the ratings pod in your namespace:
+
+[source,sh,role="copypaste"]
+----
+oc get po --selector app=ratings
+----
+
+[source,console,role="copypaste"]
+----
+NAME                          READY   STATUS    RESTARTS   AGE
+ratings-v1-5786768978-66rww   2/2     Running   0          30m
+----
+
+Then, check the authentication status of the ratings pod:
+
+[source,sh,role="copypaste"]
+----
+istioctl -i user13-istio-system authn tls-check -n user13-bookinfo ratings-v1-5786768978-66rww
+----
+
+[source,console,role="copypaste"]
+----
+HOST:PORT                                                                 STATUS     SERVER         CLIENT           AUTHN POLICY                                          DESTINATION RULE
+details.user13-bookinfo.svc.cluster.local:9080                            OK         PERMISSIVE     DISABLE          user13-istio-system/default                           user13-bookinfo/details
+details.user13-bookinfo.svc.cluster.local|v1:9080                         OK         PERMISSIVE     -                user13-istio-system/default                           user13-bookinfo/details
+grafana.user13-istio-system.svc.cluster.local:3000                        OK         DISABLE        -                user13-istio-system/grafana-ports-mtls-disabled       -
+istio-citadel.user13-istio-system.svc.cluster.local:8060                  OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-citadel.user13-istio-system.svc.cluster.local:15014                 OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-egressgateway.user13-istio-system.svc.cluster.local:80              OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-egressgateway.user13-istio-system.svc.cluster.local:443             OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-egressgateway.user13-istio-system.svc.cluster.local:15443           OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-galley.user13-istio-system.svc.cluster.local:443                    OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-galley.user13-istio-system.svc.cluster.local:9901                   OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-galley.user13-istio-system.svc.cluster.local:15014                  OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-ingressgateway.user13-istio-system.svc.cluster.local:80             OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-ingressgateway.user13-istio-system.svc.cluster.local:443            OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-ingressgateway.user13-istio-system.svc.cluster.local:15020          OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-ingressgateway.user13-istio-system.svc.cluster.local:15443          OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-pilot.user13-istio-system.svc.cluster.local:8080                    OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-pilot.user13-istio-system.svc.cluster.local:15010                   OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-pilot.user13-istio-system.svc.cluster.local:15011                   OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-pilot.user13-istio-system.svc.cluster.local:15014                   OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-policy.user13-istio-system.svc.cluster.local:9091                   OK         PERMISSIVE     DISABLE          user13-istio-system/default                           user13-istio-system/istio-policy
+istio-policy.user13-istio-system.svc.cluster.local:15004                  OK         PERMISSIVE     ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/istio-policy
+istio-policy.user13-istio-system.svc.cluster.local:15014                  OK         PERMISSIVE     -                user13-istio-system/default                           user13-istio-system/istio-policy
+istio-sidecar-injector.user13-istio-system.svc.cluster.local:443          OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-sidecar-injector.user13-istio-system.svc.cluster.local:15014        OK         PERMISSIVE     -                user13-istio-system/default                           -
+istio-telemetry.user13-istio-system.svc.cluster.local:9091                OK         PERMISSIVE     DISABLE          user13-istio-system/default                           user13-istio-system/istio-telemetry
+istio-telemetry.user13-istio-system.svc.cluster.local:15004               OK         PERMISSIVE     ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/istio-telemetry
+istio-telemetry.user13-istio-system.svc.cluster.local:15014               OK         PERMISSIVE     -                user13-istio-system/default                           user13-istio-system/istio-telemetry
+istio-telemetry.user13-istio-system.svc.cluster.local:42422               OK         PERMISSIVE     -                user13-istio-system/default                           user13-istio-system/istio-telemetry
+jaeger-agent.user13-istio-system.svc.cluster.local:5775                   OK         PERMISSIVE     -                user13-istio-system/default                           -
+jaeger-agent.user13-istio-system.svc.cluster.local:5778                   OK         PERMISSIVE     -                user13-istio-system/default                           -
+jaeger-agent.user13-istio-system.svc.cluster.local:6831                   OK         PERMISSIVE     -                user13-istio-system/default                           -
+jaeger-agent.user13-istio-system.svc.cluster.local:6832                   OK         PERMISSIVE     -                user13-istio-system/default                           -
+jaeger-collector-headless.user13-istio-system.svc.cluster.local:9411      OK         PERMISSIVE     -                user13-istio-system/default                           -
+jaeger-collector-headless.user13-istio-system.svc.cluster.local:14250     OK         PERMISSIVE     -                user13-istio-system/default                           -
+jaeger-collector-headless.user13-istio-system.svc.cluster.local:14267     OK         PERMISSIVE     -                user13-istio-system/default                           -
+jaeger-collector-headless.user13-istio-system.svc.cluster.local:14268     OK         PERMISSIVE     -                user13-istio-system/default                           -
+jaeger-collector.user13-istio-system.svc.cluster.local:9411               OK         DISABLE        DISABLE          user13-istio-system/disable-mtls-jaeger-collector     user13-istio-system/disable-mtls-jaeger-collector
+jaeger-collector.user13-istio-system.svc.cluster.local:14250              OK         DISABLE        DISABLE          user13-istio-system/disable-mtls-jaeger-collector     user13-istio-system/disable-mtls-jaeger-collector
+jaeger-collector.user13-istio-system.svc.cluster.local:14267              OK         DISABLE        DISABLE          user13-istio-system/disable-mtls-jaeger-collector     user13-istio-system/disable-mtls-jaeger-collector
+jaeger-collector.user13-istio-system.svc.cluster.local:14268              OK         DISABLE        DISABLE          user13-istio-system/disable-mtls-jaeger-collector     user13-istio-system/disable-mtls-jaeger-collector
+jaeger-query.user13-istio-system.svc.cluster.local:443                    OK         PERMISSIVE     -                user13-istio-system/default                           -
+kiali.user13-istio-system.svc.cluster.local:20001                         OK         PERMISSIVE     -                user13-istio-system/default                           -
+productpage.user13-bookinfo.svc.cluster.local:9080                        OK         PERMISSIVE     DISABLE          user13-istio-system/default                           user13-bookinfo/productpage
+productpage.user13-bookinfo.svc.cluster.local|v1:9080                     OK         PERMISSIVE     -                user13-istio-system/default                           user13-bookinfo/productpage
+prometheus.user13-istio-system.svc.cluster.local:9090                     OK         PERMISSIVE     -                user13-istio-system/default                           -
+ratings.user13-bookinfo.svc.cluster.local:9080                            OK         PERMISSIVE     DISABLE          user13-istio-system/default                           user13-bookinfo/ratings
+ratings.user13-bookinfo.svc.cluster.local|v1:9080                         OK         PERMISSIVE     -                user13-istio-system/default                           user13-bookinfo/ratings
+reviews.user13-bookinfo.svc.cluster.local:9080                            OK         PERMISSIVE     DISABLE          user13-istio-system/default                           user13-bookinfo/reviews
+reviews.user13-bookinfo.svc.cluster.local|v1:9080                         OK         PERMISSIVE     -                user13-istio-system/default                           user13-bookinfo/reviews
+reviews.user13-bookinfo.svc.cluster.local|v2:9080                         OK         PERMISSIVE     -                user13-istio-system/default                           user13-bookinfo/reviews
+reviews.user13-bookinfo.svc.cluster.local|v3:9080                         OK         PERMISSIVE     -                user13-istio-system/default                           user13-bookinfo/reviews
+zipkin.user13-istio-system.svc.cluster.local:9411                         OK         DISABLE        DISABLE          user13-istio-system/disable-mtls-zipkin               user13-istio-system/disable-mtls-zipkin
+----
+
+[TODO]
+----
+Figure out how to turn on MTLS here. :-)
+----
+
+Then, verify that the mesh is in conflict:
+
+
+[source,sh,role="copypaste"]
+----
+istioctl -i user13-istio-system authn tls-check -n user13-bookinfo ratings-v1-5786768978-66rww
+----
+
+[source,console,role="copypaste"]
+----
+HOST:PORT                                                                 STATUS       SERVER      CLIENT           AUTHN POLICY                                          DESTINATION RULE
+details.user13-bookinfo.svc.cluster.local:9080                            CONFLICT     STRICT      DISABLE          user13-istio-system/default                           user13-bookinfo/details
+details.user13-bookinfo.svc.cluster.local|v1:9080                         OK           STRICT      -                user13-istio-system/default                           user13-bookinfo/details
+grafana.user13-istio-system.svc.cluster.local:3000                        CONFLICT     DISABLE     ISTIO_MUTUAL     user13-istio-system/grafana-ports-mtls-disabled       user13-istio-system/default
+istio-citadel.user13-istio-system.svc.cluster.local:8060                  OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-citadel.user13-istio-system.svc.cluster.local:15014                 OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-egressgateway.user13-istio-system.svc.cluster.local:80              OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-egressgateway.user13-istio-system.svc.cluster.local:443             OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-egressgateway.user13-istio-system.svc.cluster.local:15443           OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-galley.user13-istio-system.svc.cluster.local:443                    OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-galley.user13-istio-system.svc.cluster.local:9901                   OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-galley.user13-istio-system.svc.cluster.local:15014                  OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-ingressgateway.user13-istio-system.svc.cluster.local:80             OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-ingressgateway.user13-istio-system.svc.cluster.local:443            OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-ingressgateway.user13-istio-system.svc.cluster.local:15020          OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-ingressgateway.user13-istio-system.svc.cluster.local:15443          OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-pilot.user13-istio-system.svc.cluster.local:8080                    OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-pilot.user13-istio-system.svc.cluster.local:15010                   OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-pilot.user13-istio-system.svc.cluster.local:15011                   OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-pilot.user13-istio-system.svc.cluster.local:15014                   OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-policy.user13-istio-system.svc.cluster.local:9091                   CONFLICT     STRICT      DISABLE          user13-istio-system/default                           user13-istio-system/istio-policy
+istio-policy.user13-istio-system.svc.cluster.local:15004                  OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/istio-policy
+istio-policy.user13-istio-system.svc.cluster.local:15014                  OK           STRICT      -                user13-istio-system/default                           user13-istio-system/istio-policy
+istio-sidecar-injector.user13-istio-system.svc.cluster.local:443          OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-sidecar-injector.user13-istio-system.svc.cluster.local:15014        OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+istio-telemetry.user13-istio-system.svc.cluster.local:9091                CONFLICT     STRICT      DISABLE          user13-istio-system/default                           user13-istio-system/istio-telemetry
+istio-telemetry.user13-istio-system.svc.cluster.local:15004               OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/istio-telemetry
+istio-telemetry.user13-istio-system.svc.cluster.local:15014               OK           STRICT      -                user13-istio-system/default                           user13-istio-system/istio-telemetry
+istio-telemetry.user13-istio-system.svc.cluster.local:42422               OK           STRICT      -                user13-istio-system/default                           user13-istio-system/istio-telemetry
+jaeger-agent.user13-istio-system.svc.cluster.local:5775                   OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+jaeger-agent.user13-istio-system.svc.cluster.local:5778                   OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+jaeger-agent.user13-istio-system.svc.cluster.local:6831                   OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+jaeger-agent.user13-istio-system.svc.cluster.local:6832                   OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+jaeger-collector-headless.user13-istio-system.svc.cluster.local:9411      OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+jaeger-collector-headless.user13-istio-system.svc.cluster.local:14250     OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+jaeger-collector-headless.user13-istio-system.svc.cluster.local:14267     OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+jaeger-collector-headless.user13-istio-system.svc.cluster.local:14268     OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+jaeger-collector.user13-istio-system.svc.cluster.local:9411               OK           DISABLE     DISABLE          user13-istio-system/disable-mtls-jaeger-collector     user13-istio-system/disable-mtls-jaeger-collector
+jaeger-collector.user13-istio-system.svc.cluster.local:14250              OK           DISABLE     DISABLE          user13-istio-system/disable-mtls-jaeger-collector     user13-istio-system/disable-mtls-jaeger-collector
+jaeger-collector.user13-istio-system.svc.cluster.local:14267              OK           DISABLE     DISABLE          user13-istio-system/disable-mtls-jaeger-collector     user13-istio-system/disable-mtls-jaeger-collector
+jaeger-collector.user13-istio-system.svc.cluster.local:14268              OK           DISABLE     DISABLE          user13-istio-system/disable-mtls-jaeger-collector     user13-istio-system/disable-mtls-jaeger-collector
+jaeger-query.user13-istio-system.svc.cluster.local:443                    OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+kiali.user13-istio-system.svc.cluster.local:20001                         OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+productpage.user13-bookinfo.svc.cluster.local:9080                        CONFLICT     STRICT      DISABLE          user13-istio-system/default                           user13-bookinfo/productpage
+productpage.user13-bookinfo.svc.cluster.local|v1:9080                     OK           STRICT      -                user13-istio-system/default                           user13-bookinfo/productpage
+prometheus.user13-istio-system.svc.cluster.local:9090                     OK           STRICT      ISTIO_MUTUAL     user13-istio-system/default                           user13-istio-system/default
+ratings.user13-bookinfo.svc.cluster.local:9080                            CONFLICT     STRICT      DISABLE          user13-istio-system/default                           user13-bookinfo/ratings
+ratings.user13-bookinfo.svc.cluster.local|v1:9080                         OK           STRICT      -                user13-istio-system/default                           user13-bookinfo/ratings
+reviews.user13-bookinfo.svc.cluster.local:9080                            CONFLICT     STRICT      DISABLE          user13-istio-system/default                           user13-bookinfo/reviews
+reviews.user13-bookinfo.svc.cluster.local|v1:9080                         OK           STRICT      -                user13-istio-system/default                           user13-bookinfo/reviews
+reviews.user13-bookinfo.svc.cluster.local|v2:9080                         OK           STRICT      -                user13-istio-system/default                           user13-bookinfo/reviews
+reviews.user13-bookinfo.svc.cluster.local|v3:9080                         OK           STRICT      -                user13-istio-system/default                           user13-bookinfo/reviews
+zipkin.user13-istio-system.svc.cluster.local:9411                         OK           DISABLE     DISABLE          user13-istio-system/disable-mtls-zipkin     
+----
+
+You can also verify that the application is failing in Kiali.
+
+To Fix, update the trafficPolicy in each of the DestinationRules:
+
+[source,yaml,role="copypaste"]
+----
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+----

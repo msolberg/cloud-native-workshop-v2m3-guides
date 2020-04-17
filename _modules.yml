@@ -12,3 +12,5 @@ modules:
     name: Service Visualization and Monitoring
   advanced-service-mesh-dev:
     name: Advanced Service Mesh Development
+  service-mesh-security:
+    name: Service Mesh Security
